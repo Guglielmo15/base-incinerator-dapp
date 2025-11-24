@@ -19,6 +19,18 @@ import {
 
 type TokenType = "erc20" | "erc721" | "erc1155" | "unknown";
 
+type WalletAssetType = "ERC20" | "ERC721" | "ERC1155";
+
+type WalletAsset = {
+  type: WalletAssetType;
+  contractAddress: string;
+  tokenId?: string;
+  symbol: string;
+  name: string;
+  balance: string;
+  decimals?: number;
+};
+
 const IFACE_ERC721 = "0x80ac58cd";
 const IFACE_ERC1155 = "0xd9b67a26";
 
@@ -33,6 +45,13 @@ export default function BurnForm() {
     error: writeErr,
   } = useWriteContract();
 
+  // Wallet assets (from Moralis via backend)
+  const [walletAssets, setWalletAssets] = useState<WalletAsset[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [assetsError, setAssetsError] = useState<string | null>(null);
+  const [selectedAssetIndex, setSelectedAssetIndex] = useState<string>("");
+
+  // Manual form state (fallback and for fine control)
   const [tokenAddr, setTokenAddr] = useState<string>("");
   const tokenAddrValid = isAddress(tokenAddr);
   const tokenAddrHex = (tokenAddrValid ? tokenAddr : undefined) as
@@ -40,8 +59,8 @@ export default function BurnForm() {
     | undefined;
 
   const [tokenType, setTokenType] = useState<TokenType>("unknown");
-  const [amountStr, setAmountStr] = useState<string>(""); // ERC20 amount or ERC1155 qty
-  const [tokenIdStr, setTokenIdStr] = useState<string>(""); // 721/1155 id
+  const [amountStr, setAmountStr] = useState<string>(""); // ERC20 amount or ERC1155 quantity
+  const [tokenIdStr, setTokenIdStr] = useState<string>(""); // ERC721/1155 token id
   const [feeWei, setFeeWei] = useState<bigint | null>(null);
   const [decimals, setDecimals] = useState<number>(18);
 
@@ -54,6 +73,46 @@ export default function BurnForm() {
   const [needApprove721, setNeedApprove721] = useState(false);
   const [needApprove1155, setNeedApprove1155] = useState(false);
 
+  // Fetch wallet assets when address changes
+  useEffect(() => {
+    if (!address) {
+      setWalletAssets([]);
+      setAssetsError(null);
+      setAssetsLoading(false);
+      setSelectedAssetIndex("");
+      return;
+    }
+
+    const fetchAssets = async () => {
+      try {
+        setAssetsLoading(true);
+        setAssetsError(null);
+        setSelectedAssetIndex("");
+
+        const res = await fetch(`/api/wallet-assets?address=${address}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to load wallet assets");
+        }
+
+        const data = await res.json();
+        const assets = (data.assets ?? []) as WalletAsset[];
+        setWalletAssets(assets);
+      } catch (err) {
+        console.error("wallet-assets error:", err);
+        if (err instanceof Error) {
+          setAssetsError(err.message || "Unknown error while loading assets");
+        } else {
+          setAssetsError("Unknown error while loading assets");
+        }
+      } finally {
+        setAssetsLoading(false);
+      }
+    };
+
+    fetchAssets();
+  }, [address]);
+
   // Read fee once
   useEffect(() => {
     (async () => {
@@ -65,13 +124,14 @@ export default function BurnForm() {
           functionName: "BURN_FEE",
         })) as bigint;
         setFeeWei(v);
-      } catch {
+      } catch (err) {
+        console.error("Failed to read burn fee", err);
         setFeeWei(null);
       }
     })();
   }, [pc]);
 
-  // Detect token standard
+  // Detect token standard (manual detection)
   const detect = async () => {
     if (!pc || !tokenAddrHex) {
       setTokenType("unknown");
@@ -118,12 +178,40 @@ export default function BurnForm() {
       }
 
       setTokenType("unknown");
-    } catch {
+    } catch (err) {
+      console.error("Detect error", err);
       setTokenType("unknown");
     }
   };
 
-  // Approve need for ERC20
+  // Apply selected wallet asset to the form
+  const applyAssetSelection = (asset: WalletAsset | null) => {
+    if (!asset) {
+      // Keep manual values as they are
+      return;
+    }
+
+    setTokenAddr(asset.contractAddress);
+
+    const lowerType = asset.type.toLowerCase() as TokenType;
+    setTokenType(lowerType);
+
+    if (asset.type === "ERC20") {
+      if (typeof asset.decimals === "number") {
+        setDecimals(asset.decimals);
+      }
+      setTokenIdStr("");
+      setAmountStr(asset.balance || "");
+    } else if (asset.type === "ERC721") {
+      setTokenIdStr(asset.tokenId ?? "");
+      setAmountStr("1");
+    } else if (asset.type === "ERC1155") {
+      setTokenIdStr(asset.tokenId ?? "");
+      setAmountStr(asset.balance || "");
+    }
+  };
+
+  // Check approve need for ERC20
   useEffect(() => {
     (async () => {
       if (
@@ -145,13 +233,14 @@ export default function BurnForm() {
           args: [address, INCINERATOR_ADDRESS],
         })) as bigint;
         setNeedApprove20(allowance < amountWei);
-      } catch {
+      } catch (err) {
+        console.error("ERC20 allowance check error", err);
         setNeedApprove20(true);
       }
     })();
   }, [pc, tokenType, address, amountStr, tokenAddrHex, decimals]);
 
-  // Approve need for ERC721
+  // Check approve need for ERC721
   useEffect(() => {
     (async () => {
       if (
@@ -185,13 +274,14 @@ export default function BurnForm() {
           args: [address, INCINERATOR_ADDRESS],
         })) as boolean;
         setNeedApprove721(!isAll);
-      } catch {
+      } catch (err) {
+        console.error("ERC721 approve check error", err);
         setNeedApprove721(true);
       }
     })();
   }, [pc, tokenType, address, tokenAddrHex, tokenIdStr]);
 
-  // Approve need for ERC1155
+  // Check approve need for ERC1155
   useEffect(() => {
     (async () => {
       if (!pc || tokenType !== "erc1155" || !address || !tokenAddrHex) {
@@ -206,13 +296,14 @@ export default function BurnForm() {
           args: [address, INCINERATOR_ADDRESS],
         })) as boolean;
         setNeedApprove1155(!isAll);
-      } catch {
+      } catch (err) {
+        console.error("ERC1155 approve check error", err);
         setNeedApprove1155(true);
       }
     })();
   }, [pc, tokenType, address, tokenAddrHex]);
 
-  // Actions
+  // Approve actions
   const onApprove20 = async () => {
     if (!tokenAddrHex) return;
     const amountWei = parseUnits(amountStr || "0", decimals);
@@ -244,6 +335,7 @@ export default function BurnForm() {
     });
   };
 
+  // Burn actions
   const onBurn = async () => {
     if (!feeWei || !tokenAddrHex) return;
 
@@ -289,6 +381,86 @@ export default function BurnForm() {
 
   return (
     <div className="w-full max-w-xl mx-auto space-y-4">
+      {/* Wallet assets dropdown */}
+      {address && (
+        <div className="grid gap-3">
+          <label className="text-sm opacity-80">
+            Select an asset from your wallet (Base Sepolia)
+          </label>
+
+          {assetsLoading && (
+            <p className="text-sm opacity-70">Loading wallet assets...</p>
+          )}
+
+          {assetsError && !assetsLoading && (
+            <p className="text-sm text-red-500">
+              Failed to load wallet assets: {assetsError}
+            </p>
+          )}
+
+          {!assetsLoading && !assetsError && walletAssets.length === 0 && (
+            <p className="text-sm opacity-70">
+              No assets detected for this wallet on Base Sepolia.
+            </p>
+          )}
+
+          {!assetsLoading && walletAssets.length > 0 && (
+            <select
+              className="border rounded-xl p-3 bg-transparent"
+              value={selectedAssetIndex}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedAssetIndex(value);
+
+                if (!value) {
+                  applyAssetSelection(null);
+                  return;
+                }
+
+                const idx = parseInt(value, 10);
+                const asset = walletAssets[idx];
+                applyAssetSelection(asset ?? null);
+              }}
+            >
+              <option value="">
+                Select asset from wallet or use manual input below
+              </option>
+
+              <optgroup label="ERC20">
+                {walletAssets.map((a, i) =>
+                  a.type === "ERC20" ? (
+                    <option key={`erc20-${i}`} value={String(i)}>
+                      {a.symbol || "ERC20"} · {a.balance} {a.symbol || ""}
+                    </option>
+                  ) : null
+                )}
+              </optgroup>
+
+              <optgroup label="ERC721">
+                {walletAssets.map((a, i) =>
+                  a.type === "ERC721" ? (
+                    <option key={`erc721-${i}`} value={String(i)}>
+                      {a.name || "ERC721"} #{a.tokenId}
+                    </option>
+                  ) : null
+                )}
+              </optgroup>
+
+              <optgroup label="ERC1155">
+                {walletAssets.map((a, i) =>
+                  a.type === "ERC1155" ? (
+                    <option key={`erc1155-${i}`} value={String(i)}>
+                      {a.name || "ERC1155"} #{a.tokenId} · qty {a.balance}
+                    </option>
+                  ) : null
+                )}
+              </optgroup>
+            </select>
+          )}
+        </div>
+      )}
+
+      {/* Manual input fallback */}
       <div className="grid gap-3">
         <label className="text-sm opacity-80">Token address</label>
         <input
