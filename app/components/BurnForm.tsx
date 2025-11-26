@@ -9,6 +9,7 @@ import {
 } from "wagmi";
 import { formatEther, parseUnits, isAddress, BaseError, Hex } from "viem";
 import { baseSepolia } from "wagmi/chains";
+import { useSearchParams } from "next/navigation";
 import { INCINERATOR_ADDRESS, INCINERATOR_ABI } from "@/lib/contract";
 import {
   ERC20_ABI,
@@ -37,6 +38,7 @@ const IFACE_ERC1155 = "0xd9b67a26";
 export default function BurnForm() {
   const { address } = useAccount();
   const pc = usePublicClient();
+  const searchParams = useSearchParams();
 
   const {
     writeContract,
@@ -72,6 +74,16 @@ export default function BurnForm() {
   const [needApprove20, setNeedApprove20] = useState(false);
   const [needApprove721, setNeedApprove721] = useState(false);
   const [needApprove1155, setNeedApprove1155] = useState(false);
+
+  // Store referral address from URL in localStorage
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref && isAddress(ref)) {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("baseIncinerator_ref", ref.toLowerCase());
+      }
+    }
+  }, [searchParams]);
 
   // Fetch wallet assets when address changes
   useEffect(() => {
@@ -369,6 +381,34 @@ export default function BurnForm() {
       });
     }
   };
+
+  // After tx is confirmed, record MAGMA burn on backend
+  useEffect(() => {
+    const recordBurn = async () => {
+      if (!receipt || !address) return;
+
+      try {
+        const ref =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("baseIncinerator_ref")
+            : null;
+
+        await fetch("/api/magma/record-burn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletAddress: address,
+            txHash: receipt.transactionHash,
+            referrer: ref,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to record MAGMA burn", err);
+      }
+    };
+
+    recordBurn();
+  }, [receipt, address]);
 
   const explorerBase =
     baseSepolia.blockExplorers?.default?.url ?? "https://sepolia.basescan.org";
