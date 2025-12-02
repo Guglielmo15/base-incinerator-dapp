@@ -126,13 +126,11 @@ export async function POST(req: Request) {
         res.status === 404 &&
         text.toLowerCase().includes("no transaction found");
 
-      // se è 404 "no transaction found" riproviamo fino ad un massimo di 3 tentativi
       if (isNotFound && attempt < 2) {
-        await delay(3000); // 3 secondi
+        await delay(3000);
         continue;
       }
 
-      // per altri errori (o ultimo tentativo fallito) usciamo con 502
       return NextResponse.json(
         { error: "Failed to fetch transaction from Moralis" },
         { status: 502 }
