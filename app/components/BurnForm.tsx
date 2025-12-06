@@ -66,9 +66,11 @@ export default function BurnForm() {
   const [feeWei, setFeeWei] = useState<bigint | null>(null);
   const [decimals, setDecimals] = useState<number>(18);
 
-  const { data: receipt } = useWaitForTransactionReceipt({
-    hash: txHash as Hex | undefined,
-  });
+  const { data: receipt, isLoading: isConfirming } =
+    useWaitForTransactionReceipt({
+      hash: txHash as Hex | undefined,
+      confirmations: 3,
+    });
 
   // Approval flags
   const [needApprove20, setNeedApprove20] = useState(false);
@@ -78,6 +80,12 @@ export default function BurnForm() {
     null
   );
   const [shouldRecordBurn, setShouldRecordBurn] = useState(false);
+
+  const isApproveProcessing =
+    pendingAction === "approve" && (isPending || isConfirming);
+
+  const isBurnProcessing =
+    pendingAction === "burn" && (isPending || isConfirming);
 
   // UI helpers
   const [showManualInput, setShowManualInput] = useState(false);
@@ -566,10 +574,6 @@ export default function BurnForm() {
       {/* Wallet assets dropdown - hidden when manual input is active */}
       {address && !showManualInput && (
         <div className="grid gap-3">
-          <label className="text-sm font-medium text-white/80">
-            Select an asset from your wallet (Base Sepolia)
-          </label>
-
           {assetsLoading && (
             <p className="text-sm opacity-70">Loading wallet assets...</p>
           )}
@@ -611,7 +615,7 @@ export default function BurnForm() {
 
               <optgroup label="ERC20">
                 {walletAssets.map((a, i) =>
-                  a.type === "ERC20" ? (
+                  a.type === "ERC20" && a.symbol?.toUpperCase() !== "ETH" ? (
                     <option key={`erc20-${i}`} value={String(i)}>
                       {a.symbol || "ERC20"} · {a.balance} {a.symbol || ""}
                     </option>
@@ -648,7 +652,7 @@ export default function BurnForm() {
         <button
           type="button"
           onClick={handleToggleManualInput}
-          className="rounded-full border border-white/40 px-4 py-2 text-sm hover:bg-white/10 transition-colors"
+          className="rounded-2xl border border-white/40 px-4 py-2.5 text-sm hover:bg-white/10 transition-colors"
         >
           {showManualInput ? "Hide manual input" : "+ Manual input"}
         </button>
@@ -669,7 +673,7 @@ export default function BurnForm() {
           <div className="flex items-center gap-3">
             <button
               onClick={detect}
-              className="inline-flex rounded-full border border-white/40 px-4 py-2 text-sm hover:bg-white/10 transition-colors disabled:opacity-50"
+              className="inline-flex rounded-2xl border border-white/40 px-4 py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-50"
               disabled={!tokenAddrValid || isPending}
             >
               Import
@@ -729,46 +733,40 @@ export default function BurnForm() {
         {hasActionableAsset && tokenType === "erc20" && needApprove20 && (
           <button
             onClick={onApprove20}
-            disabled={isPending || !tokenAddrValid}
+            disabled={isApproveProcessing || !tokenAddrValid}
             className="rounded-2xl border border-white/60 px-5 py-2.5 text-sm font-semibold bg-white text-black hover:bg-orange-500 hover:border-orange-500 hover:text-black disabled:opacity-50 transition-colors"
           >
-            {isPending && pendingAction === "approve"
-              ? "Approving..."
-              : "Approve ERC20"}
+            {isApproveProcessing ? "Approving..." : "Approve ERC20"}
           </button>
         )}
 
         {hasActionableAsset && tokenType === "erc721" && needApprove721 && (
           <button
             onClick={onApprove721}
-            disabled={isPending || !tokenAddrValid || !tokenIdStr}
+            disabled={isApproveProcessing || !tokenAddrValid || !tokenIdStr}
             className="rounded-2xl border border-white/60 px-5 py-2.5 text-sm font-semibold bg-white text-black hover:bg-orange-500 hover:border-orange-500 hover:text-black disabled:opacity-50 transition-colors"
           >
-            {isPending && pendingAction === "approve"
-              ? "Approving..."
-              : "Approve ERC721"}
+            {isApproveProcessing ? "Approving..." : "Approve ERC721"}
           </button>
         )}
 
         {hasActionableAsset && tokenType === "erc1155" && needApprove1155 && (
           <button
             onClick={onApprove1155}
-            disabled={isPending || !tokenAddrValid}
+            disabled={isApproveProcessing || !tokenAddrValid}
             className="rounded-2xl border border-white/60 px-5 py-2.5 text-sm font-semibold bg-white text-black hover:bg-orange-500 hover:border-orange-500 hover:text-black disabled:opacity-50 transition-colors"
           >
-            {isPending && pendingAction === "approve"
-              ? "Approving..."
-              : "Approve ERC1155"}
+            {isApproveProcessing ? "Approving..." : "Approve ERC1155"}
           </button>
         )}
 
         {!needsAnyApprove && (
           <button
             onClick={handleBurnClick}
-            disabled={!feeWei || isPending || !hasActionableAsset}
+            disabled={!feeWei || isBurnProcessing || !hasActionableAsset}
             className="rounded-2xl border-2 border-[#ff9900] px-6 py-2.5 font-semibold text-[#ff9900] bg-black transition-colors hover:bg-[#ff9900] hover:text-black disabled:opacity-50"
           >
-            {isPending && pendingAction === "burn" ? "Burning..." : "Burn"}
+            {isBurnProcessing ? "Burning..." : "Burn"}
           </button>
         )}
 

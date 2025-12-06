@@ -2,6 +2,7 @@
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import BurnForm from "./components/BurnForm";
 import { MagmaBadge } from "./components/MagmaBadge";
+import { IncineratorFooterLinks } from "./components/IncineratorFooterLinks";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
       <MagmaBadge />
       <ConnectButton />
       <BurnForm />
+      <IncineratorFooterLinks />
     </main>
   );
 }
